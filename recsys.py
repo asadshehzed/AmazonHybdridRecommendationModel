@@ -44,6 +44,30 @@ def extract_features(df):
 
     return np.hstack([tfidf_features[:2000], bert_features])
 
+def optimize_hyperparameters(X_train, y_train, X_val, y_val):
+    params_list = [
+        {'n_estimators': 300, 'max_depth': 6, 'learning_rate': 0.1},
+        {'n_estimators': 500, 'max_depth': 8, 'learning_rate': 0.05}
+    ]
+    best_rmse = float("inf")
+    best_params = None
+    for params in params_list:
+        model = xgb.XGBRegressor(**params)
+        model.fit(X_train, y_train)
+        preds = model.predict(X_val)
+        rmse = np.sqrt(mean_squared_error(y_val, preds))
+        if rmse < best_rmse:
+            best_rmse, best_params = rmse, params
+    return best_params
+
+def simulate_business_impact(precision_at_5, avg_price=20.0):
+    baseline_conversion = 0.05
+    improved_conversion = baseline_conversion * (1 + precision_at_5 * 0.5)
+    return {
+        "conversion_rate": improved_conversion,
+        "sales_lift_%": (improved_conversion - baseline_conversion) / baseline_conversion * 100
+    }
+
 if __name__ == "__main__":
     df = load_gzipped_json("Electronics.jsonl.gz", 5000)
     df = preprocess_data(df)
