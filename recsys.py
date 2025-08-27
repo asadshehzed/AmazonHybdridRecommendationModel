@@ -1,9 +1,11 @@
-import gzip
-import json
+import gzip, json, warnings
 import pandas as pd
+import numpy as np
+from scipy.sparse import coo_matrix
+from sklearn.feature_extraction.text import TfidfVectorizer
+from implicit.als import AlternatingLeastSquares
+from sklearn.preprocessing import LabelEncoder
 import matplotlib.pyplot as plt
-import seaborn as sns
-import warnings
 
 warnings.filterwarnings("ignore")
 
@@ -24,21 +26,26 @@ def preprocess_data(df):
     df['review_length'] = df['text'].apply(len)
     return df[['user_id', 'parent_asin', 'rating', 'text', 'review_length']]
 
-def perform_eda(df, category):
-    # Rating distribution
-    sns.countplot(x="rating", data=df)
-    plt.title(f"Rating Distribution - {category}")
-    plt.show()
+def extract_features(df):
+    # TF-IDF
+    tfidf = TfidfVectorizer(max_features=500, stop_words='english')
+    tfidf_matrix = tfidf.fit_transform(df['text'].fillna(""))
 
-    # Review length
-    sns.histplot(df['review_length'], bins=50, kde=True)
-    plt.title(f"Review Length - {category}")
-    plt.show()
+    # Collaborative Filtering (ALS)
+    user_enc = LabelEncoder()
+    item_enc = LabelEncoder()
+    user_ids = user_enc.fit_transform(df['user_id'])
+    item_ids = item_enc.fit_transform(df['parent_asin'])
+
+    matrix = coo_matrix((df['rating'], (user_ids, item_ids)))
+    als = AlternatingLeastSquares(factors=32, iterations=10)
+    als.fit(matrix)
+
+    return tfidf_matrix, als, user_enc, item_enc
 
 if __name__ == "__main__":
-    category = "Electronics"
-    reviews_file = f"{category}.jsonl.gz"
-    
-    df = load_gzipped_json(reviews_file, sample_size=10000)
+    df = load_gzipped_json("Electronics.jsonl.gz", 20000)
     df = preprocess_data(df)
-    perform_eda(df, category)
+    tfidf_matrix, als, user_enc, item_enc = extract_features(df)
+    print("TF-IDF shape:", tfidf_matrix.shape)
+    print("ALS user factors:", als.user_factors.shape)
