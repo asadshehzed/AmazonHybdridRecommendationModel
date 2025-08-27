@@ -28,24 +28,31 @@ def preprocess_data(df):
 
 def extract_features(df):
     # TF-IDF
-    tfidf = TfidfVectorizer(max_features=500, stop_words='english')
-    tfidf_matrix = tfidf.fit_transform(df['text'].fillna(""))
+    tfidf = TfidfVectorizer(max_features=300, stop_words='english')
+    tfidf_features = tfidf.fit_transform(df['text'].fillna("")).toarray()
 
-    # Collaborative Filtering (ALS)
-    user_enc = LabelEncoder()
-    item_enc = LabelEncoder()
-    user_ids = user_enc.fit_transform(df['user_id'])
-    item_ids = item_enc.fit_transform(df['parent_asin'])
+    # BERT embeddings
+    tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+    model = BertModel.from_pretrained("bert-base-uncased").to(DEVICE)
+    model.eval()
 
-    matrix = coo_matrix((df['rating'], (user_ids, item_ids)))
-    als = AlternatingLeastSquares(factors=32, iterations=10)
-    als.fit(matrix)
+    texts = df['text'].fillna("").tolist()[:2000]  # limit for demo
+    inputs = tokenizer(texts, return_tensors="pt", truncation=True, padding=True, max_length=64).to(DEVICE)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    bert_features = outputs.last_hidden_state.mean(dim=1).cpu().numpy()
 
-    return tfidf_matrix, als, user_enc, item_enc
+    return np.hstack([tfidf_features[:2000], bert_features])
 
 if __name__ == "__main__":
-    df = load_gzipped_json("Electronics.jsonl.gz", 20000)
+    df = load_gzipped_json("Electronics.jsonl.gz", 5000)
     df = preprocess_data(df)
-    tfidf_matrix, als, user_enc, item_enc = extract_features(df)
-    print("TF-IDF shape:", tfidf_matrix.shape)
-    print("ALS user factors:", als.user_factors.shape)
+    X = extract_features(df)
+    y = df['rating'].values[:2000]
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+    model = xgb.XGBRegressor(n_estimators=200)
+    model.fit(X_train, y_train)
+    preds = model.predict(X_test)
+    rmse = np.sqrt(mean_squared_error(y_test, preds))
+    print("Hybrid RMSE:", rmse)
